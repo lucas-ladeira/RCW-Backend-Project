@@ -4,7 +4,7 @@ class UserRole(Enum):
     ADMIN = 'admin'
     MANUFACTURER = 'manufacturer'
     DISTRIBUTOR = 'distributor'
-    PHARMACY = 'pharmacy'
+    PHARMACIST = 'pharmacist'
     CONSUMER = 'consumer'
 
 class UserStatus(Enum):

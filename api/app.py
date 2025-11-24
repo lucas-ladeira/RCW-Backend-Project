@@ -4,6 +4,7 @@ from config.jwt import configure_jwt
 from config.cors import configure_cors
 from src.routes.user_routes import user_bp
 from src.routes.auth_routes import auth_bp
+from src.routes.blockchain_routes import blockchain_blueprint
 from flask_migrate import Migrate
 
 def create_app():
