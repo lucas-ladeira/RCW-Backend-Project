@@ -8,7 +8,7 @@ blockchain_controller = BlockchainController()
 
 @blockchain_bp.route("/batches", methods=["POST"])
 def create_batch():
-    return blockchain_controller.create_batch(request.json)
+    return blockchain_controller.create_batch(request.get_json())
 
 
 @blockchain_bp.route("/batches/transfer", methods=["POST"])

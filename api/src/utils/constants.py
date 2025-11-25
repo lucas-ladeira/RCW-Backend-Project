@@ -2,6 +2,7 @@ from enum import Enum
 
 class UserRole(Enum):
     ADMIN = 'admin'
+    GUEST = 'guest'
     MANUFACTURER = 'manufacturer'
     DISTRIBUTOR = 'distributor'
     PHARMACIST = 'pharmacist'
