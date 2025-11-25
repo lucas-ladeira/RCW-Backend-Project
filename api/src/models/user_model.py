@@ -15,8 +15,12 @@ class User(db.Model):
     hashed_password = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False)
     status = db.Column(db.String(20), nullable=False)
+    organization_id = db.Column(UUID(as_uuid=True), db.ForeignKey('organization.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda:datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc))
+    
+    # Relationship
+    organization = db.relationship('Organization', back_populates='users')
     
     def __repr__(self):
         return f"<User {self.name}>"
@@ -26,6 +30,7 @@ class UserOutputBase(ma.Schema):
     name = ma.String()
     email = ma.String()
     phone = ma.String()
+    organization_id = ma.UUID()
     
 class UserOutputAdmin(UserOutputBase):
     role = ma.String()    
@@ -46,6 +51,7 @@ class UserInputCreate(ma.Schema):
     email = ma.String(required=True, validate=validate.Email(error="Invalid email"))
     phone = ma.String(required=True, validate=validate.Length(min=9))
     password = ma.String(required=True, validate=validate.Length(min=8))
+    organization_id = ma.UUID(required=False)
 
 class UserInputUpdate(ma.Schema):
     name = ma.String(required=False, validate=validate.Length(min=3))

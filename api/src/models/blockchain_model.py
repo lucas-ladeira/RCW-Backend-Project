@@ -40,6 +40,7 @@ class CreateBatchDTO(Schema):
     expiry_date = fields.String(required=True)
     total_quantity = fields.Integer(required=True, validate=validate.Range(min=1))
     unit_dosage = fields.String(required=True)
+    unit_price = fields.Float(required=True, validate=validate.Range(min=0.01))
     owner_org_id = fields.String(required=True)
 
 

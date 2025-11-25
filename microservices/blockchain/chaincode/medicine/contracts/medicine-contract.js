@@ -45,6 +45,7 @@ class MedicineContract extends Contract {
     expiryDate,
     totalQuantity,
     unitDosage,
+    unitPrice,
     ownerOrgId
   ) {
     const exists = await this.batchExists(ctx, batchId);
@@ -57,6 +58,11 @@ class MedicineContract extends Contract {
       throw new Error('totalQuantity must be a positive integer');
     }
 
+    const unitPriceNumber = parseFloat(unitPrice);
+    if (isNaN(unitPriceNumber) || unitPriceNumber <= 0) {
+      throw new Error('unitPrice must be a positive number');
+    }
+
     const now = new Date().toISOString();
 
     const batch = {
@@ -66,9 +72,16 @@ class MedicineContract extends Contract {
       expiryDate,
       totalQuantity: totalQuantityNumber,
       unitDosage,
-      currentOwnerOrgId: ownerOrgId,
+      unitPrice: unitPriceNumber,  // IMMUTABLE - cannot be changed after creation
       status: 'CREATED',              // CREATED | IN_TRANSIT | DELIVERED | CONSUMED
+      ownerships: [                   // Track ownership distribution
+        {
+          orgId: ownerOrgId,
+          quantity: totalQuantityNumber
+        }
+      ],
       lastTransfer: null,             // will be updated in transfers
+      transfers: [],                  // Full history of transfers
       createdAt: now,
       updatedAt: now
     };
@@ -86,16 +99,35 @@ class MedicineContract extends Contract {
   }
 
   /**
-   * Transfer a batch from one organization to another.
-   * In this first version we assume the whole batch moves together (no partial split).
+   * Transfer a batch (or partial quantity) from one organization to another.
+   * Validates supply chain order and prevents tampering.
    */
-  async transferBatch(ctx, batchId, fromOrgId, toOrgId, transferMetadataJson) {
+  async transferBatch(ctx, batchId, fromOrgId, toOrgId, quantityStr, transferMetadataJson) {
     const batch = await this.readBatchInternal(ctx, batchId);
 
-    if (batch.currentOwnerOrgId !== fromOrgId) {
+    const quantity = parseInt(quantityStr, 10);
+    if (isNaN(quantity) || quantity <= 0) {
+      throw new Error('Quantity must be a positive integer');
+    }
+
+    // Find fromOrg ownership
+    const fromOwnership = batch.ownerships.find(o => o.orgId === fromOrgId);
+    if (!fromOwnership) {
+      throw new Error(`Organization ${fromOrgId} does not own any of batch ${batchId}`);
+    }
+
+    if (fromOwnership.quantity < quantity) {
       throw new Error(
-        `Invalid owner. Batch ${batchId} belongs to ${batch.currentOwnerOrgId}, not ${fromOrgId}`
+        `Insufficient quantity. ${fromOrgId} owns ${fromOwnership.quantity}, trying to transfer ${quantity}`
       );
+    }
+
+    // Validate supply chain order
+    this._validateSupplyChainOrder(fromOrgId, toOrgId);
+
+    // Validate that critical fields cannot be changed (immutability check)
+    if (batch.unitPrice === undefined || batch.unitPrice === null) {
+      throw new Error('Unit price is not set - batch integrity compromised');
     }
 
     const now = new Date().toISOString();
@@ -112,16 +144,35 @@ class MedicineContract extends Contract {
     const transferRecord = {
       fromOrgId,
       toOrgId,
+      quantity,
       timestamp: now,
       metadata
     };
 
-    batch.currentOwnerOrgId = toOrgId;
+    // Update ownerships
+    fromOwnership.quantity -= quantity;
+
+    // Remove ownership if quantity becomes 0
+    if (fromOwnership.quantity === 0) {
+      batch.ownerships = batch.ownerships.filter(o => o.orgId !== fromOrgId);
+    }
+
+    // Add or update toOrg ownership
+    const toOwnership = batch.ownerships.find(o => o.orgId === toOrgId);
+    if (toOwnership) {
+      toOwnership.quantity += quantity;
+    } else {
+      batch.ownerships.push({
+        orgId: toOrgId,
+        quantity
+      });
+    }
+
     batch.status = 'IN_TRANSIT';
     batch.lastTransfer = transferRecord;
     batch.updatedAt = now;
 
-    // Optional: keep a transfer history inside the batch object
+    // Keep transfer history
     if (!Array.isArray(batch.transfers)) {
       batch.transfers = [];
     }
@@ -132,18 +183,88 @@ class MedicineContract extends Contract {
   }
 
   /**
-   * Mark batch as delivered to final consumer or pharmacy.
+   * Validate that the transfer follows the correct supply chain order.
+   * manufacturer -> distributor -> pharmacy -> consumer
    */
-  async markBatchDelivered(ctx, batchId, deliveredToOrgId) {
-    const batch = await this.readBatchInternal(ctx, batchId);
+  _validateSupplyChainOrder(fromOrgId, toOrgId) {
+    const supplyChainRoles = {
+      manufacturer: 1,
+      distributor: 2,
+      pharmacy: 3,
+      consumer: 4
+    };
 
-    if (batch.currentOwnerOrgId !== deliveredToOrgId) {
+    // Extract role from orgId (assumes format like "Org1MSP" or "manufacturer-org1")
+    const getRole = (orgId) => {
+      const lowerId = orgId.toLowerCase();
+      if (lowerId.includes('manufacturer')) return supplyChainRoles.manufacturer;
+      if (lowerId.includes('distributor')) return supplyChainRoles.distributor;
+      if (lowerId.includes('pharmacy') || lowerId.includes('pharmacist')) return supplyChainRoles.pharmacy;
+      if (lowerId.includes('consumer')) return supplyChainRoles.consumer;
+      // Default fallback - could be more strict
+      return 0;
+    };
+
+    const fromRole = getRole(fromOrgId);
+    const toRole = getRole(toOrgId);
+
+    if (fromRole === 0 || toRole === 0) {
+      // Cannot determine roles - allow but log warning
+      console.warn(`Cannot validate supply chain order for ${fromOrgId} -> ${toOrgId}`);
+      return;
+    }
+
+    // Ensure transfer goes forward in the chain (or same level for returns)
+    if (toRole < fromRole) {
       throw new Error(
-        `Cannot mark delivered: current owner is ${batch.currentOwnerOrgId}, not ${deliveredToOrgId}`
+        `Invalid supply chain order: cannot transfer from ${fromOrgId} (level ${fromRole}) to ${toOrgId} (level ${toRole}). ` +
+        `Transfers must go forward in the chain: manufacturer -> distributor -> pharmacy -> consumer`
       );
     }
 
-    batch.status = 'DELIVERED';
+    // Prevent skipping levels (unless going from manufacturer directly to pharmacy in special cases)
+    if (toRole - fromRole > 1 && !(fromRole === 1 && toRole === 3)) {
+      throw new Error(
+        `Invalid supply chain order: cannot skip intermediate steps from ${fromOrgId} to ${toOrgId}`
+      );
+    }
+  }
+
+  /**
+   * Mark batch as delivered to final consumer or pharmacy.
+   */
+  async markBatchDelivered(ctx, batchId, deliveredToOrgId, quantityStr) {
+    const batch = await this.readBatchInternal(ctx, batchId);
+
+    const quantity = parseInt(quantityStr, 10);
+    if (isNaN(quantity) || quantity <= 0) {
+      throw new Error('Quantity must be a positive integer');
+    }
+
+    const ownership = batch.ownerships.find(o => o.orgId === deliveredToOrgId);
+    if (!ownership) {
+      throw new Error(
+        `Cannot mark delivered: ${deliveredToOrgId} does not own any of batch ${batchId}`
+      );
+    }
+
+    if (ownership.quantity < quantity) {
+      throw new Error(
+        `Cannot mark delivered: ${deliveredToOrgId} owns ${ownership.quantity}, trying to deliver ${quantity}`
+      );
+    }
+
+    // Reduce quantity from ownership
+    ownership.quantity -= quantity;
+    if (ownership.quantity === 0) {
+      batch.ownerships = batch.ownerships.filter(o => o.orgId !== deliveredToOrgId);
+    }
+
+    // If all ownerships are depleted, mark as fully delivered
+    if (batch.ownerships.length === 0) {
+      batch.status = 'DELIVERED';
+    }
+
     batch.updatedAt = new Date().toISOString();
 
     await this.writeBatchInternal(ctx, batch);

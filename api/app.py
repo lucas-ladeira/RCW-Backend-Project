@@ -5,6 +5,9 @@ from config.cors import configure_cors
 from src.routes.user_routes import user_bp
 from src.routes.auth_routes import auth_bp
 from src.routes.blockchain_routes import blockchain_bp
+from src.routes.medication_request_routes import medication_request_bp
+from src.routes.inventory_routes import inventory_bp
+from src.routes.notification_routes import notification_bp
 from flask_migrate import Migrate
 
 def create_app():
@@ -21,6 +24,9 @@ def create_app():
     app.register_blueprint(user_bp, url_prefix='/users')
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(blockchain_bp, url_prefix='/blockchain')
+    app.register_blueprint(medication_request_bp, url_prefix='/api')
+    app.register_blueprint(inventory_bp, url_prefix='/api')
+    app.register_blueprint(notification_bp, url_prefix='/api')
 
     return app
 

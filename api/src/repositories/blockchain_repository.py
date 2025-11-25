@@ -20,6 +20,7 @@ class BlockchainRepository:
             dto["expiry_date"],
             str(dto["total_quantity"]),
             dto["unit_dosage"],
+            str(dto["unit_price"]),
             dto["owner_org_id"],
         ]
         return self._submit("createBatch", args)
@@ -34,8 +35,8 @@ class BlockchainRepository:
         ]
         return self._submit("transferBatch", args)
 
-    def mark_batch_delivered(self, batch_id: str, delivered_to_org_id: str):
-        return self._submit("markBatchDelivered", [batch_id, delivered_to_org_id])
+    def mark_batch_delivered(self, batch_id: str, delivered_to_org_id: str, quantity: int):
+        return self._submit("markBatchDelivered", [batch_id, delivered_to_org_id, str(quantity)])
 
     def get_batch(self, batch_id: str):
         return self._evaluate("getBatch", [batch_id])
