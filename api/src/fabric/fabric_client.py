@@ -66,11 +66,14 @@ class FabricClient:
     # Evaluate transaction (read)
     # --------------------------------------------------------
     async def evaluate_transaction(self, fcn: str, args: list[str]):
+        # Use contract_name:function format if contract_name is provided
+        function_name = f"{self.contract_name}:{fcn}" if self.contract_name else fcn
+        
         response = await self.client.chaincode_query(
             requestor=self.user_id,
             channel_name=self.channel_name,
             chaincode_name=self.chaincode_name,
-            fcn=fcn,
+            fcn=function_name,
             args=args,
         )
 
@@ -83,12 +86,15 @@ class FabricClient:
     # Submit transaction (write)
     # --------------------------------------------------------
     async def submit_transaction(self, fcn: str, args: list[str]):
+        # Use contract_name:function format if contract_name is provided
+        function_name = f"{self.contract_name}:{fcn}" if self.contract_name else fcn
+        
         response = await self.client.chaincode_invoke(
             requestor=self.user_id,
             peers=["peer0.org1.example.com"],
             channel_name=self.channel_name,
             chaincode_name=self.chaincode_name,
-            fcn=fcn,
+            fcn=function_name,
             args=args,
             wait_for_event=True,
         )
